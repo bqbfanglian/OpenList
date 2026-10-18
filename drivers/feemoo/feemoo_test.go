@@ -26,6 +26,7 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
 	"github.com/OpenListTeam/OpenList/v4/internal/stream"
+	"github.com/OpenListTeam/OpenList/v4/pkg/utils"
 )
 
 type mockTask struct {
@@ -417,5 +418,46 @@ func TestPaginationDirectoriesAndLockCancellation(t *testing.T) {
 	cancel()
 	if _, err = d.lock(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatal("lock wait ignored cancellation")
+	}
+}
+
+type cancelDuringRead struct {
+	reader io.Reader
+	cancel context.CancelFunc
+}
+
+func (r *cancelDuringRead) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.cancel()
+	return n, err
+}
+
+func TestCancelDuringHashLeavesSourceOwnershipWithCopier(t *testing.T) {
+	d, m := newMock(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := source("cancel-hash.bin", bytes.Repeat([]byte("x"), 128<<10), false)
+	f.Reader = &cancelDuringRead{reader: f.Reader, cancel: cancel}
+	closed := false
+	f.Add(utils.CloseFunc(func() error { closed = true; return nil }))
+	_, err := d.Put(ctx, root(), f, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("hash preparation did not stop: %v", err)
+	}
+	if closed {
+		t.Fatal("driver closed the caller-owned source concurrently")
+	}
+	if m.initCalls != 0 {
+		t.Fatal("canceled hash allocated upload session")
+	}
+	entries, _ := os.ReadDir(d.TempDir)
+	if len(entries) != 0 {
+		t.Fatal("canceled hashing leaked temporary file")
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !closed {
+		t.Fatal("source owner could not release stream")
 	}
 }

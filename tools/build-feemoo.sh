@@ -23,6 +23,8 @@ CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -tags=jsoniter -t
 cp drivers/feemoo/README.md "$destination/使用说明.md"
 cp drivers/feemoo/VALIDATION.md "$destination/VALIDATION.md"
 cp drivers/feemoo/session-helper.html "$destination/session-helper.html"
+mkdir -p "$destination/images"
+cp drivers/feemoo/images/openlist-copy-result.png "$destination/images/"
 cp drivers/feemoo/session-helper.html "$destination/会话信息提取.html"
 if [[ "$target_os" == windows ]]; then
   printf '@echo off\r\ncd /d "%%~dp0"\r\nopenlist.exe server\r\npause\r\n' > "$destination/启动OpenList.cmd"

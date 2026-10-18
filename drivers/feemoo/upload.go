@@ -86,8 +86,9 @@ func (d *Feemoo) prepare(ctx context.Context, source model.FileStreamer, up driv
 		p.reader = p.temp
 	}
 	reader = &driver.ReaderWithCtx{Reader: reader, Ctx: ctx}
-	stop := context.AfterFunc(ctx, func() { _ = source.Close() })
-	defer stop()
+	// The source's HTTP stream already shares the task context. op.Put owns its
+	// Close; concurrently closing FileStream's non-thread-safe closer slice here
+	// can race with source initialization or the copier's deferred cleanup.
 	aggregate, full := md5.New(), md5.New()
 	progress := &countWriter{total: size, up: up}
 	buffer := make([]byte, 32<<10)
