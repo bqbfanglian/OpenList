@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>飞猫盘会话信息提取（仅本地）</title>
+<style>body{font:16px/1.7 system-ui;max-width:850px;margin:40px auto;padding:18px;color:#183046}textarea{box-sizing:border-box;width:100%;min-height:150px}button{padding:9px 16px;margin:8px 0}input{box-sizing:border-box;width:100%;padding:8px}section{margin:16px 0}#error{color:#a00}label{display:block;font-weight:600}</style>
+<h1>飞猫盘会话信息提取</h1>
+<p>所有处理都在本页完成，本页禁止联网，不会执行粘贴的命令。Cookie 和设备头等同于登录凭据，请勿发送到聊天、截图、网盘分享或 GitHub。</p>
+<ol><li>在平常使用的 Chrome / Edge 中打开 https://www.feemoo.com/ 并登录。</li><li>按 F12 → Network（网络），点击官网“文件”，搜索 <code>/disk-service/file/list</code>。</li><li>右键请求 → Copy → Copy as cURL (bash)，粘贴到下方。</li><li>点击提取，将四项分别复制到 OpenList 的 Feemoo 存储配置。</li></ol>
+<textarea id="curl" autocomplete="off" spellcheck="false" aria-label="仅粘贴飞猫盘请求的 cURL"></textarea>
+<button id="extract">在本页提取</button> <button id="clear">清空凭据</button><p id="error" role="status"></p>
+<section id="result" hidden></section>
+<script>
+'use strict';
+// Parse tokens as data. Never eval, execute, store or transmit the cURL command.
+function tokens(text){let result=[],word='',quote='',active=false;for(let i=0;i<text.length;i++){let c=text[i];if(quote){if(c===quote){quote='';continue}if(c==='\\'&&quote==='"'&&i+1<text.length){word+=text[++i];continue}word+=c;continue}if(c==='\\'){if(text[i+1]==='\r'&&text[i+2]==='\n'){i+=2;continue}if(text[i+1]==='\n'){i++;continue}if(i+1<text.length){word+=text[++i];active=true;continue}}if(c==="'"||c==='"'){quote=c;active=true;continue}if(/\s/.test(c)){if(active){result.push(word);word='';active=false}continue}word+=c;active=true}if(quote)throw Error('引号不完整，请完整复制请求');if(active)result.push(word);return result}
+const fields=['cookie','par','pto','user-agent'];
+function extract(text){const args=tokens(text),headers={};let valid=false;for(let i=0;i<args.length;i++){const a=args[i];if(a.startsWith('https://')){const u=new URL(a);if(u.hostname==='fmpapi.feemoo.com'&&u.pathname==='/disk-service/file/list')valid=true}if(['-H','--header','-b','--cookie','-A','--user-agent'].includes(a)){const v=args[++i]||'';if(a==='-b'||a==='--cookie')headers.cookie=v;else if(a==='-A'||a==='--user-agent')headers['user-agent']=v;else{const n=v.indexOf(':');if(n>0)headers[v.slice(0,n).trim().toLowerCase()]=v.slice(n+1).trim()}}}if(!valid)throw Error('必须是 fmpapi.feemoo.com 的 /disk-service/file/list 请求');if(fields.some(k=>!headers[k]))throw Error('缺少 Cookie、par、pto 或 User-Agent，请确认已登录并完整复制请求');return headers}
+document.getElementById('extract').onclick=()=>{const error=document.getElementById('error'),output=document.getElementById('result');output.replaceChildren();output.hidden=true;try{const h=extract(document.getElementById('curl').value);for(const k of fields){const box=document.createElement('section'),label=document.createElement('label'),input=document.createElement('input');label.textContent=k==='user-agent'?'user_agent（User-Agent）':k;input.value=h[k];input.readOnly=true;input.type='password';input.autocomplete='off';input.setAttribute('aria-label',label.textContent);const button=document.createElement('button');button.textContent='选中此项，按 Ctrl+C 复制';button.onclick=()=>{input.focus();input.select()};box.append(label,input,button);output.append(box)}output.hidden=false;error.textContent='已提取。保存 OpenList 存储配置后，请清空并关闭本页。'}catch(e){error.textContent=e.message}};
+document.getElementById('clear').onclick=()=>{document.getElementById('curl').value='';document.getElementById('result').replaceChildren();document.getElementById('result').hidden=true;document.getElementById('error').textContent='已清空';};
+</script></html>

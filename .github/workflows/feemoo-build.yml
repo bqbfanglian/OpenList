@@ -1,0 +1,50 @@
+name: Private Feemoo build
+on:
+  push:
+    branches: [feat/feemoo]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: feemoo-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    if: github.repository == 'bqbfanglian/OpenList'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.2'
+      - run: go test -race ./drivers/feemoo ./internal/fs ./internal/stream
+      - run: go vet ./drivers/feemoo ./internal/fs
+  binary:
+    if: github.repository == 'bqbfanglian/OpenList'
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - {os: windows, arch: amd64}
+          - {os: linux, arch: amd64}
+          - {os: linux, arch: arm64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.2'
+      - run: bash tools/build-feemoo.sh ${{ matrix.target.os }} ${{ matrix.target.arch }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: openlist-feemoo-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: build/feemoo/${{ matrix.target.os }}-${{ matrix.target.arch }}/
+          retention-days: 30
+  docker:
+    if: github.repository == 'bqbfanglian/OpenList'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: docker build -f Dockerfile.feemoo --build-arg VCS_REF=${{ github.sha }} -t openlist-feemoo:ci .
+      - run: docker run --rm openlist-feemoo:ci version

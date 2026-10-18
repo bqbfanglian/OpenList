@@ -1,0 +1,30 @@
+# Private Feemoo build. Does not publish to any registry.
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS build
+RUN apk add --no-cache ca-certificates curl git
+WORKDIR /src
+ENV GOTOOLCHAIN=local CGO_ENABLED=0
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VCS_REF=unknown
+RUN mkdir -p public/dist && \
+    curl -fL --retry 3 https://github.com/OpenListTeam/OpenList-Frontend/releases/download/v4.2.7/openlist-frontend-dist-v4.2.7.tar.gz -o /tmp/frontend.tar.gz && \
+    echo '88aba5260646ed784847a11e473880d749b17b80af53caf895fe1f31f36aa3e3  /tmp/frontend.tar.gz' | sha256sum -c - && \
+    tar -xzf /tmp/frontend.tar.gz -C public/dist && \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags=jsoniter -trimpath \
+      -ldflags="-s -w -X github.com/OpenListTeam/OpenList/v4/internal/conf.Version=v4.2.7-feemoo -X github.com/OpenListTeam/OpenList/v4/internal/conf.WebVersion=v4.2.7 -X github.com/OpenListTeam/OpenList/v4/internal/conf.GitCommit=$VCS_REF" \
+      -o /out/openlist .
+
+FROM alpine:3
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -g 1001 openlist && adduser -D -u 1001 -G openlist openlist && \
+    mkdir -p /opt/openlist/data && chown -R 1001:1001 /opt/openlist
+WORKDIR /opt/openlist
+COPY --from=build /out/openlist /opt/openlist/openlist
+USER 1001:1001
+VOLUME /opt/openlist/data
+EXPOSE 5244
+ENTRYPOINT ["/opt/openlist/openlist"]
+CMD ["server", "--data", "/opt/openlist/data"]

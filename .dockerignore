@@ -1,0 +1,15 @@
+.git
+.github
+.local
+.tools
+data
+build
+bin
+tmp
+log
+*.exe
+*.db
+*.db-shm
+*.db-wal
+*.curl
+*session*.json

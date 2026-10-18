@@ -189,6 +189,11 @@ func (t *FileTransferTask) RunWithNextTaskCallback(f func(nextTask *FileTransfer
 			return errors.WithMessagef(err, "failed list src [%s] objs", t.SrcActualPath)
 		}
 		dstActualPath := stdpath.Join(t.DstActualPath, srcObj.GetName())
+		// Create the directory even when it has no children. Relying on a later
+		// file Put to create parent directories silently loses empty folders.
+		if err := op.MakeDir(t.Ctx(), t.DstStorage, dstActualPath); err != nil {
+			return errors.WithMessagef(err, "failed to make destination dir [%s]", dstActualPath)
+		}
 		task_group.TransferCoordinator.AppendPayload(t.groupID, task_group.DstPathToHook(dstActualPath))
 
 		existedObjs := make(map[string]bool)
