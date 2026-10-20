@@ -30,5 +30,14 @@ func (d *Feemoo) authenticate(ctx context.Context) error {
 		return errors.New("feemoo: 账号未返回有效的单文件上传限制")
 	}
 	d.partSize, d.maxSize, d.uploadLine = partSize, maxSize, string(info.UploadLine)
+	// The official web client uses direct_upload_max_part for its worker count.
+	// Missing or malformed limits retain the conservative single-part path.
+	d.partConcurrency = 1
+	if allowed, err := info.MaxPart.int64(); err == nil && allowed > 0 {
+		d.partConcurrency = int(min(allowed, 8))
+	}
+	if d.PartConcurrency > 0 {
+		d.partConcurrency = min(d.partConcurrency, d.PartConcurrency)
+	}
 	return nil
 }

@@ -24,6 +24,7 @@ type Feemoo struct {
 	responseKey       *rsa.PrivateKey
 	partSize, maxSize int64
 	uploadLine        string
+	partConcurrency   int
 	writeGate         chan struct{}
 }
 
@@ -34,8 +35,8 @@ func (d *Feemoo) Init(ctx context.Context) error {
 	if d.RequestTimeout == 0 {
 		d.RequestTimeout = 180
 	}
-	if d.RequestTimeout < 1 || d.RequestTimeout > 3600 || d.PartRetries < 0 || d.PartRetries > 5 {
-		return errors.New("feemoo: invalid timeout or retry settings")
+	if d.RequestTimeout < 1 || d.RequestTimeout > 3600 || d.PartRetries < 0 || d.PartRetries > 5 || d.PartConcurrency < 0 || d.PartConcurrency > 8 {
+		return errors.New("feemoo: invalid timeout, retry or concurrency settings")
 	}
 	if d.RootFolderID == "" {
 		d.RootFolderID = "0"
@@ -44,7 +45,11 @@ func (d *Feemoo) Init(ctx context.Context) error {
 		d.apiBase = apiBaseURL
 	}
 	if d.client == nil {
-		d.client = &http.Client{Transport: http.DefaultTransport.(*http.Transport).Clone(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		// Keep the bounded part workers' connections available between signing
+		// and sending the next part instead of reverting to two idle connections.
+		transport.MaxIdleConnsPerHost = max(transport.MaxIdleConnsPerHost, 8)
+		d.client = &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	if err := d.loadProtocolKeys(); err != nil {
 		return err

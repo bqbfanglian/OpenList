@@ -47,8 +47,9 @@ type mockFeemoo struct {
 	initCalls, putCalls, cancelCalls int
 	failParts                        int
 	listCode                         string
+	maxPart                          scalar
 	mergeError, wrongSize            bool
-	onPut                            func(*http.Request)
+	onPut                            func(http.ResponseWriter, *http.Request)
 }
 
 func newMock(t *testing.T) (*Feemoo, *mockFeemoo) {
@@ -101,7 +102,7 @@ func (m *mockFeemoo) handle(w http.ResponseWriter, r *http.Request) {
 		task.parts[number] = body
 		m.mu.Unlock()
 		if hook != nil {
-			hook(r)
+			hook(w, r)
 			return
 		}
 		w.WriteHeader(200)
@@ -187,7 +188,7 @@ func (m *mockFeemoo) handle(w http.ResponseWriter, r *http.Request) {
 	text := func(key string) string { return fmt.Sprint(payload[key]) }
 	switch r.URL.Path {
 	case "/user-service/user/info":
-		m.respond(w, map[string]any{"upload_type": "1", "upload_part_size": "65536", "upload_max_limit": "10737418240", "upload_line": "1"})
+		m.respond(w, map[string]any{"upload_type": "1", "upload_part_size": "65536", "upload_max_limit": "10737418240", "upload_line": "1", "direct_upload_max_part": m.maxPart})
 	case "/disk-service/file/list":
 		if m.listCode != "" {
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": m.listCode, "msg": "fake failure"})
@@ -290,7 +291,7 @@ func TestCancelCleansSessionAndTempFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	started := make(chan struct{})
-	m.onPut = func(r *http.Request) { close(started); <-r.Context().Done() }
+	m.onPut = func(_ http.ResponseWriter, r *http.Request) { close(started); <-r.Context().Done() }
 	result := make(chan error, 1)
 	go func() {
 		_, err := d.Put(ctx, root(), source("cancel.bin", []byte("cancel me"), false), nil)

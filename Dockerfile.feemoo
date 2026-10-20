@@ -14,7 +14,7 @@ RUN mkdir -p public/dist && \
     echo '88aba5260646ed784847a11e473880d749b17b80af53caf895fe1f31f36aa3e3  /tmp/frontend.tar.gz' | sha256sum -c - && \
     tar -xzf /tmp/frontend.tar.gz -C public/dist && \
     GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags=jsoniter -trimpath \
-      -ldflags="-s -w -X github.com/OpenListTeam/OpenList/v4/internal/conf.Version=v4.2.7-feemoo -X github.com/OpenListTeam/OpenList/v4/internal/conf.WebVersion=v4.2.7 -X github.com/OpenListTeam/OpenList/v4/internal/conf.GitCommit=$VCS_REF" \
+      -ldflags="-s -w -X github.com/OpenListTeam/OpenList/v4/internal/conf.Version=v4.2.7-feemoo.2 -X github.com/OpenListTeam/OpenList/v4/internal/conf.WebVersion=v4.2.7 -X github.com/OpenListTeam/OpenList/v4/internal/conf.GitCommit=$VCS_REF" \
       -o /out/openlist .
 
 FROM alpine:3

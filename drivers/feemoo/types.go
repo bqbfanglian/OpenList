@@ -47,6 +47,7 @@ type userInfo struct {
 	PartSize   scalar `json:"upload_part_size"`
 	MaxSize    scalar `json:"upload_max_limit"`
 	UploadLine scalar `json:"upload_line"`
+	MaxPart    scalar `json:"direct_upload_max_part"`
 }
 
 type entry struct {

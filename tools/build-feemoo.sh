@@ -18,16 +18,23 @@ if [[ "$target_os" == windows ]]; then binary='openlist.exe'; fi
 commit="$(git rev-parse --short HEAD)"
 built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -tags=jsoniter -trimpath \
-  -ldflags="-s -w -X github.com/OpenListTeam/OpenList/v4/internal/conf.Version=v4.2.7-feemoo -X github.com/OpenListTeam/OpenList/v4/internal/conf.WebVersion=v4.2.7 -X github.com/OpenListTeam/OpenList/v4/internal/conf.GitCommit=$commit -X github.com/OpenListTeam/OpenList/v4/internal/conf.BuiltAt=$built_at" \
+  -ldflags="-s -w -X github.com/OpenListTeam/OpenList/v4/internal/conf.Version=v4.2.7-feemoo.2 -X github.com/OpenListTeam/OpenList/v4/internal/conf.WebVersion=v4.2.7 -X github.com/OpenListTeam/OpenList/v4/internal/conf.GitCommit=$commit -X github.com/OpenListTeam/OpenList/v4/internal/conf.BuiltAt=$built_at" \
   -o "$destination/$binary" .
 cp drivers/feemoo/README.md "$destination/使用说明.md"
+cp drivers/feemoo/README.md "$destination/README.md"
+cp drivers/feemoo/INSTALL-LINUX.md "$destination/INSTALL-LINUX.md"
 cp drivers/feemoo/VALIDATION.md "$destination/VALIDATION.md"
 cp drivers/feemoo/session-helper.html "$destination/session-helper.html"
 mkdir -p "$destination/images"
 cp drivers/feemoo/images/openlist-copy-result.png "$destination/images/"
+cp drivers/feemoo/images/openlist-parallel-copy-tasks.jpg "$destination/images/"
 cp drivers/feemoo/session-helper.html "$destination/会话信息提取.html"
+cp LICENSE "$destination/LICENSE"
 if [[ "$target_os" == windows ]]; then
   printf '@echo off\r\ncd /d "%%~dp0"\r\nopenlist.exe server\r\npause\r\n' > "$destination/启动OpenList.cmd"
+else
+  printf '#!/bin/sh\nset -eu\ncd "$(dirname "$0")"\nexec ./openlist server "$@"\n' > "$destination/start.sh"
+  chmod +x "$destination/start.sh"
 fi
 (cd "$destination" && sha256sum "$binary" > SHA256SUMS.txt)
 echo "Build ready: $destination"

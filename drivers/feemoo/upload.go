@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/OpenListTeam/OpenList/v4/internal/conf"
@@ -17,6 +19,7 @@ import (
 	"github.com/OpenListTeam/OpenList/v4/internal/errs"
 	"github.com/OpenListTeam/OpenList/v4/internal/model"
 	"github.com/shirou/gopsutil/v4/disk"
+	"golang.org/x/sync/errgroup"
 )
 
 type preparedFile struct {
@@ -195,41 +198,8 @@ func (d *Feemoo) Put(ctx context.Context, dir model.Obj, source model.FileStream
 				return nil, err
 			}
 		}
-		lastProgress := float64(40)
-		for index, md5sum := range prepared.parts {
-			offset := int64(index) * d.partSize
-			length := min(d.partSize, size-offset)
-			var partErr error
-			for attempt := 0; attempt <= d.PartRetries; attempt++ {
-				if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-				var signed struct {
-					URL string `json:"sign_url"`
-				}
-				partErr = d.sessionPost(ctx, session.PartURL, map[string]string{"task_id": string(session.TaskID), "m": md5sum, "part_number": strconv.Itoa(index + 1), "upload_line": d.uploadLine}, &signed)
-				if partErr == nil {
-					partErr = d.putPart(ctx, signed.URL, prepared.reader, offset, length, func(n int64) {
-						p := float64(95)
-						if size > 0 {
-							p = 40 + float64(offset+n)/float64(size)*55
-						}
-						if p > lastProgress {
-							lastProgress = p
-							up(p)
-						}
-					})
-				}
-				if partErr == nil {
-					break
-				}
-				if attempt >= d.PartRetries || !retryable(partErr) {
-					return nil, fmt.Errorf("feemoo: upload part %d: %w", index+1, partErr)
-				}
-				if err := delay(ctx, attempt); err != nil {
-					return nil, err
-				}
-			}
+		if err := d.uploadParts(ctx, session, prepared, size, up); err != nil {
+			return nil, err
 		}
 		// Never blindly retry a merge: its result can be ambiguous after a lost
 		// response. Reconcile against a fresh listing before reporting failure.
@@ -253,6 +223,92 @@ func (d *Feemoo) Put(ctx context.Context, dir model.Obj, source model.FileStream
 		up(100)
 	}
 	return obj, err
+}
+
+// Progress callbacks are serialized, and each part contributes only its highest
+// byte count. Retries and out-of-order completion must not inflate or regress it.
+type uploadProgress struct {
+	mu          sync.Mutex
+	sent        []int64
+	done, total int64
+	up          driver.UpdateProgress
+	closed      bool
+}
+
+func (p *uploadProgress) update(index int, n int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed || n <= p.sent[index] {
+		return
+	}
+	p.done += n - p.sent[index]
+	p.sent[index] = n
+	if p.total > 0 {
+		p.up(40 + float64(p.done)/float64(p.total)*55)
+	}
+}
+
+func (p *uploadProgress) close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closed = true
+}
+
+func (d *Feemoo) uploadParts(ctx context.Context, session uploadSession, prepared *preparedFile, size int64, up driver.UpdateProgress) error {
+	group, partCtx := errgroup.WithContext(ctx)
+	progress := &uploadProgress{sent: make([]int64, len(prepared.parts)), total: size, up: up}
+	// A transport may finish closing an unsuccessful request body after Do
+	// returns. Ignore late notifications before the caller reports completion.
+	defer progress.close()
+	var next atomic.Int64
+	workers := min(max(d.partConcurrency, 1), len(prepared.parts))
+	for range workers {
+		group.Go(func() error {
+			for {
+				if err := partCtx.Err(); err != nil {
+					return err
+				}
+				index := int(next.Add(1) - 1)
+				if index >= len(prepared.parts) {
+					return nil
+				}
+				if err := d.uploadPart(partCtx, session, prepared, index, size, func(n int64) {
+					progress.update(index, n)
+				}); err != nil {
+					return err
+				}
+			}
+		})
+	}
+	// Wait for every worker before merging, canceling the session or releasing
+	// the temporary file. The first failure cancels all in-flight siblings.
+	return group.Wait()
+}
+
+func (d *Feemoo) uploadPart(ctx context.Context, session uploadSession, prepared *preparedFile, index int, size int64, up func(int64)) error {
+	offset := int64(index) * d.partSize
+	length := min(d.partSize, size-offset)
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var signed struct {
+			URL string `json:"sign_url"`
+		}
+		err := d.sessionPost(ctx, session.PartURL, map[string]string{"task_id": string(session.TaskID), "m": prepared.parts[index], "part_number": strconv.Itoa(index + 1), "upload_line": d.uploadLine}, &signed)
+		if err == nil {
+			err = d.putPart(ctx, signed.URL, prepared.reader, offset, length, up)
+		}
+		if err == nil {
+			return nil
+		}
+		if attempt >= d.PartRetries || !retryable(err) {
+			return fmt.Errorf("feemoo: upload part %d: %w", index+1, err)
+		}
+		if err := delay(ctx, attempt); err != nil {
+			return err
+		}
+	}
 }
 
 type partReader struct {
